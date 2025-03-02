@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이미지 기반 3D 복셀 지도 - 고급 광원 효과</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #container { display: flex; flex-direction: column; height: 100vh; }
+        #controls { padding: 10px; background-color: #f0f0f0; }
+        #scene-container { flex-grow: 1; }
+        #original-image { 
+            position: absolute; 
+            top: 10px; 
+            right: 10px; 
+            max-width: 200px; 
+            border: 1px solid #ccc; 
+            background-color: white;
+            display: none;
+        }
+        .light-controls {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .light-control {
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #ddd;
+            padding: 5px;
+            border-radius: 5px;
+            background: white;
+        }
+        #debug-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+        }
+        .position-control {
+            display: flex;
+            align-items: center;
+            margin: 3px 0;
+        }
+        .position-control label {
+            min-width: 60px;
+            display: inline-block;
+        }
+        .position-control input {
+            flex-grow: 1;
+        }
+        .position-value {
+            min-width: 40px;
+            text-align: right;
+            margin-left: 5px;
+        }
+        .option-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .checkbox-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            padding: 5px 10px;
+        }
+        .radio-group-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin: 2px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <input type="file" id="image-input" accept="image/*">
+            <label>높이 배율: <input type="range" id="height-scale" min="0.1" max="5" step="0.1" value="1"></label>
+            
+            <div class="option-group">
+                <div class="radio-group">
+                    <div class="radio-group-label">색상 모드:</div>
+                    <div class="radio-option">
+                        <input type="radio" id="color-mode-none" name="color-mode" value="none">
+                        <label for="color-mode-none">단색</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="color-mode-vertex" name="color-mode" value="vertex">
+                        <label for="color-mode-vertex">이미지 색상 (Vertex)</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="color-mode-diffuse" name="color-mode" value="diffuse" checked>
+                        <label for="color-mode-diffuse">이미지 색상 (Diffuse)</label>
+                    </div>
+                </div>
+                <div class="checkbox-control">
+                    <button id="toggle-image">원본 이미지 보기</button>
+                </div>
+                <div class="checkbox-control">
+                    <button id="toggle-shadows">그림자 켜기/끄기</button>
+                </div>
+                <div class="checkbox-control">
+                    <label>최대 복셀 수: <input type="range" id="max-voxels" min="1000" max="100000" step="1000" value="8000"></label>
+                    <span id="max-voxels-value">8000</span>
+                </div>
+            </div>
+            
+            <div class="light-controls">
+                <div class="light-control">
+                    <label>빛 강도: <input type="range" id="light-intensity" min="0" max="2" step="0.1" value="1"></label>
+                    <label>빛 색상: <input type="color" id="light-color" value="#ffffff"></label>
+                    <label>앰비언트 강도: <input type="range" id="ambient-intensity" min="0" max="1" step="0.05" value="0.2"></label>
+                </div>
+                <div class="light-control">
+                    <h4 style="margin: 5px 0;">빛 위치</h4>
+                    <div class="position-control">
+                        <label>X 위치:</label>
+                        <input type="range" id="light-x" min="-100" max="100" step="1" value="50">
+                        <span id="light-x-value" class="position-value">50</span>
+                    </div>
+                    <div class="position-control">
+                        <label>Y 위치:</label>
+                        <input type="range" id="light-y" min="0" max="100" step="1" value="50">
+                        <span id="light-y-value" class="position-value">50</span>
+                    </div>
+                    <div class="position-control">
+                        <label>Z 위치:</label>
+                        <input type="range" id="light-z" min="-100" max="100" step="1" value="50">
+                        <span id="light-z-value" class="position-value">50</span>
+                    </div>
+                    <button id="reset-light">빛 위치 초기화</button>
+                </div>
+                <div class="light-control">
+                    <label>반사 강도: <input type="range" id="specular-intensity" min="0" max="1" step="0.05" value="0.5"></label>
+                    <label>반사 선명도: <input type="range" id="shininess" min="1" max="100" step="1" value="30"></label>
+                    <label>복셀 색상: <input type="color" id="base-color" value="#ffffff"></label>
+                </div>
+            </div>
+        </div>
+        <div id="scene-container"></div>
+        <img id="original-image" alt="원본 이미지">
+        <div id="debug-info">디버그 정보: 준비중...</div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        class VoxelHeightMapRenderer {
+            constructor() {
+                // 기본 설정
+                this.heightScale = 1.5;
+                this.usePixelColors = true;
+                this.colorMode = 'diffuse'; // 'none', 'vertex', 'diffuse'
+                this.baseColor = 0xffffff;
+                this.shadowsEnabled = true;
+                this.showingOriginalImage = false;
+                this.maxVoxels = 8000; // 최대 복셀 수 초기값
+                
+                // 광원 설정
+                this.lightIntensity = 1;
+                this.lightColor = new THREE.Color(1, 1, 1);
+                this.lightPosition = new THREE.Vector3(50, 50, 50);
+                this.ambientIntensity = 0.2;
+                this.specularIntensity = 0.5;
+                this.shininess = 30;
+                
+                // 디버그 정보
+                this.debugElement = document.getElementById('debug-info');
+                
+                // Three.js 초기화
+                this.init();
+                
+                // 이벤트 리스너 설정
+                this.initEvents();
+                
+                // 그리드 추가
+                this.addGrid();
+                
+                // 애니메이션 시작
+                this.animate();
+                
+                // 기본 이미지 로드 추가
+                this.loadDefaultImage();
+            }
+            
+            // 기본 이미지 로드 메서드 추가
+            loadDefaultImage() {
+                console.log("기본 이미지 로드 시도 중...");
+                
+                const img = new Image();
+                
+                img.onload = () => {
+                    console.log("이미지 로드 성공:", img.width, "x", img.height);
+                    
+                    // 원본 이미지 표시
+                    document.getElementById('original-image').src = img.src;
+                    
+                    // 캔버스에 이미지 그리기
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // 픽셀 데이터 가져오기
+                    this.imageData = ctx.getImageData(0, 0, img.width, img.height);
+                    
+                    // 맵 렌더링
+                    this.renderVoxelMap();
+                    
+                    // 카메라 및 조명 위치 조정
+                    this.adjustCameraAndLightToImage(img.width, img.height);
+                    
+                    this.updateDebugInfo(`초기 이미지 로드 완료: ${img.width}x${img.height} 픽셀`);
+                };
+                
+                img.onerror = (err) => {
+                    console.error("이미지 로드 실패:", err);
+                    this.updateDebugInfo("초기 이미지 로드 실패");
+                };
+                
+                img.src = '0.png';
+                console.log("이미지 소스 설정됨:", img.src);
+            }
+            
+            updateDebugInfo(message) {
+                if (this.debugElement) {
+                    this.debugElement.textContent = `디버그 정보: ${message}`;
+                }
+                console.log(message);
+            }
+            
+            init() {
+                // 씬 생성
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x222222);
+                
+                // 카메라 설정
+                this.camera = new THREE.PerspectiveCamera(
+                    60, window.innerWidth / window.innerHeight, 0.1, 1000
+                );
+                this.camera.position.set(50, 50, 50);
+                
+                // 렌더러 설정
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                
+                // 그림자 설정
+                this.renderer.shadowMap.enabled = this.shadowsEnabled;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                // 컨테이너에 렌더러 추가
+                document.getElementById('scene-container').appendChild(this.renderer.domElement);
+                
+                // 컨트롤 설정
+                this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+                
+                // 조명 설정
+                this.setupLighting();
+                
+                // 복셀 그룹 생성
+                this.voxels = new THREE.Group();
+                this.scene.add(this.voxels);
+                
+                // 리사이즈 이벤트 핸들러 등록
+                window.addEventListener('resize', () => this.onWindowResize());
+                
+                this.updateDebugInfo("초기화 완료");
+            }
+            
+            initEvents() {
+                // 이미지 입력 처리
+                document.getElementById('image-input').addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        this.loadImage(file);
+                    }
+                });
+                
+                // 높이 배율 조절
+                document.getElementById('height-scale').addEventListener('input', (e) => {
+                    this.heightScale = parseFloat(e.target.value);
+                    this.renderVoxelMap();
+                });
+                
+                // 최대 복셀 수 조절
+                document.getElementById('max-voxels').addEventListener('input', (e) => {
+                    this.maxVoxels = parseInt(e.target.value);
+                    document.getElementById('max-voxels-value').textContent = this.maxVoxels;
+                    this.renderVoxelMap();
+                });
+                
+                // 색상 모드 변경
+                document.querySelectorAll('input[name="color-mode"]').forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        this.colorMode = e.target.value;
+                        document.getElementById('base-color').disabled = (this.colorMode !== 'none');
+                        this.renderVoxelMap();
+                    });
+                });
+                
+                // 원본 이미지 토글
+                document.getElementById('toggle-image').addEventListener('click', () => {
+                    this.showingOriginalImage = !this.showingOriginalImage;
+                    document.getElementById('original-image').style.display = 
+                        this.showingOriginalImage ? 'block' : 'none';
+                });
+                
+                // 그림자 토글
+                document.getElementById('toggle-shadows').addEventListener('click', () => {
+                    this.shadowsEnabled = !this.shadowsEnabled;
+                    this.renderer.shadowMap.enabled = this.shadowsEnabled;
+                    this.directionalLight.castShadow = this.shadowsEnabled;
+                    this.renderVoxelMap();
+                });
+                
+                // 빛 강도 조절
+                document.getElementById('light-intensity').addEventListener('input', (e) => {
+                    this.lightIntensity = parseFloat(e.target.value);
+                    this.updateLights();
+                });
+                
+                // 빛 색상 조절
+                document.getElementById('light-color').addEventListener('input', (e) => {
+                    this.lightColor = new THREE.Color(e.target.value);
+                    this.updateLights();
+                });
+                
+                // 앰비언트 강도 조절
+                document.getElementById('ambient-intensity').addEventListener('input', (e) => {
+                    this.ambientIntensity = parseFloat(e.target.value);
+                    this.updateLights();
+                });
+                
+                // 빛 위치 컨트롤
+                ['x', 'y', 'z'].forEach(axis => {
+                    document.getElementById(`light-${axis}`).addEventListener('input', (e) => {
+                        this.lightPosition[axis] = parseFloat(e.target.value);
+                        document.getElementById(`light-${axis}-value`).textContent = e.target.value;
+                        this.updateLightPosition();
+                    });
+                });
+                
+                // 빛 위치 초기화
+                document.getElementById('reset-light').addEventListener('click', () => {
+                    if (this.imageData) {
+                        const { width, height } = this.imageData;
+                        this.lightPosition.set(width / 2, height / 2, height / 2);
+                        this.updateLightPositionUI();
+                        this.updateLightPosition();
+                    } else {
+                        this.lightPosition.set(50, 50, 50);
+                        this.updateLightPositionUI();
+                        this.updateLightPosition();
+                    }
+                });
+                
+                // 반사 특성 조절
+                document.getElementById('specular-intensity').addEventListener('input', (e) => {
+                    this.specularIntensity = parseFloat(e.target.value);
+                    this.updateMaterials();
+                });
+                
+                document.getElementById('shininess').addEventListener('input', (e) => {
+                    this.shininess = parseFloat(e.target.value);
+                    this.updateMaterials();
+                });
+                
+                // 복셀 기본 색상 조절
+                document.getElementById('base-color').addEventListener('input', (e) => {
+                    this.baseColor = new THREE.Color(e.target.value).getHex();
+                    if (this.colorMode === 'none') {
+                        this.renderVoxelMap();
+                    }
+                });
+                
+                // 초기 색상 모드 설정
+                document.getElementById('base-color').disabled = (this.colorMode !== 'none');
+            }
+            
+            setupLighting() {
+                // 앰비언트 라이트 추가
+                this.ambientLight = new THREE.AmbientLight(0xffffff, this.ambientIntensity);
+                this.scene.add(this.ambientLight);
+                
+                // 방향성 광원 추가
+                this.directionalLight = new THREE.DirectionalLight(
+                    this.lightColor, this.lightIntensity
+                );
+                this.directionalLight.position.copy(this.lightPosition);
+                this.directionalLight.castShadow = this.shadowsEnabled;
+                
+                // 그림자 설정
+                this.directionalLight.shadow.mapSize.width = 2048;
+                this.directionalLight.shadow.mapSize.height = 2048;
+                this.directionalLight.shadow.camera.near = 0.5;
+                this.directionalLight.shadow.camera.far = 1000;
+                this.directionalLight.shadow.bias = -0.0001;
+                
+                this.scene.add(this.directionalLight);
+                
+                // 빛 헬퍼 추가
+                this.lightHelper = new THREE.Mesh(
+                    new THREE.SphereGeometry(2, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+                );
+                this.lightHelper.position.copy(this.lightPosition);
+                this.scene.add(this.lightHelper);
+                
+                this.updateLightPositionUI();
+            }
+            
+            updateLightPositionUI() {
+                // UI 슬라이더 값 업데이트
+                ['x', 'y', 'z'].forEach(axis => {
+                    const slider = document.getElementById(`light-${axis}`);
+                    const valueDisplay = document.getElementById(`light-${axis}-value`);
+                    if (slider && valueDisplay) {
+                        slider.value = this.lightPosition[axis];
+                        valueDisplay.textContent = Math.round(this.lightPosition[axis]);
+                    }
+                });
+            }
+            
+            updateLightPosition() {
+                // 빛 위치 업데이트
+                this.directionalLight.position.copy(this.lightPosition);
+                this.lightHelper.position.copy(this.lightPosition);
+                
+                // 그림자 카메라 조정
+                if (this.imageData) {
+                    const { width, height } = this.imageData;
+                    const size = Math.max(width, height) * 1.5;
+                    this.directionalLight.shadow.camera.left = -size / 2;
+                    this.directionalLight.shadow.camera.right = size / 2;
+                    this.directionalLight.shadow.camera.top = size / 2;
+                    this.directionalLight.shadow.camera.bottom = -size / 2;
+                    this.directionalLight.shadow.camera.updateProjectionMatrix();
+                }
+            }
+            
+            updateLights() {
+                // 광원 속성 업데이트
+                this.ambientLight.intensity = this.ambientIntensity;
+                this.directionalLight.intensity = this.lightIntensity;
+                this.directionalLight.color = this.lightColor;
+            }
+            
+            updateMaterials() {
+                // 재질 속성 업데이트
+                if (this.currentMaterial) {
+                    this.currentMaterial.shininess = this.shininess;
+                    this.currentMaterial.specular.set(
+                        this.specularIntensity,
+                        this.specularIntensity,
+                        this.specularIntensity
+                    );
+                }
+            }
+            
+            addGrid() {
+                // 바닥 그리드 추가
+                const gridHelper = new THREE.GridHelper(100, 100);
+                this.scene.add(gridHelper);
+            }
+            
+            loadImage(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // 이미지 크기 제한 (선택적)
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // 임시 캔버스에 이미지 그리기
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // 픽셀 데이터 가져오기
+                        const imageData = ctx.getImageData(0, 0, width, height);
+                        this.imageData = imageData;
+                        
+                        // 원본 이미지 표시용
+                        document.getElementById('original-image').src = URL.createObjectURL(file);
+                        
+                        // 맵 렌더링
+                        this.renderVoxelMap();
+                        
+                        // 카메라 및 조명 위치 조정
+                        this.adjustCameraAndLightToImage(width, height);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            adjustCameraAndLightToImage(width, height) {
+                // 카메라 위치 조정
+                const maxDim = Math.max(width, height);
+                this.camera.position.set(width * 0.6, maxDim * 0.9, height * 0.8);
+                
+                // 빛 위치 조정
+                this.lightPosition.set(width / 2, maxDim, height / 2);
+                this.updateLightPosition();
+                this.updateLightPositionUI();
+                
+                // 카메라 컨트롤 타겟 조정
+                this.controls.target.set(width * 0.5, 0, height * 0.7);
+                this.controls.update();
+                
+                this.updateDebugInfo(`이미지 로드 완료: ${width}x${height} 픽셀`);
+            }
+            
+            renderVoxelMap() {
+                // 기존 복셀 지우기
+                while (this.voxels.children.length > 0) {
+                    const child = this.voxels.children[0];
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                    this.voxels.remove(child);
+                }
+                
+                if (!this.imageData) return;
+                
+                this.updateDebugInfo("복셀 맵 렌더링 중...");
+                
+                // 이미지 크기
+                const { width, height, data } = this.imageData;
+                
+                // 복셀 생성 (개수 제한)
+                const totalVoxels = width * height;
+                const step = Math.ceil(Math.sqrt(totalVoxels / this.maxVoxels)) > 1 ? 
+                             Math.ceil(Math.sqrt(totalVoxels / this.maxVoxels)) : 1;
+                
+                // 복셀 인스턴싱을 위한 준비
+                const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+                
+                // 색상 모드에 따른 재질 생성
+                switch(this.colorMode) {
+                    case 'none': // 단색 모드
+                        this.currentMaterial = new THREE.MeshPhongMaterial({
+                            color: this.baseColor,
+                            vertexColors: false,
+                            shininess: this.shininess,
+                            specular: new THREE.Color(
+                                this.specularIntensity,
+                                this.specularIntensity,
+                                this.specularIntensity
+                            )
+                        });
+                        break;
+                        
+                    case 'vertex': // 버텍스 색상 모드
+                        this.currentMaterial = new THREE.MeshPhongMaterial({
+                            color: 0xffffff,
+                            vertexColors: true,
+                            shininess: this.shininess,
+                            specular: new THREE.Color(
+                                this.specularIntensity,
+                                this.specularIntensity,
+                                this.specularIntensity
+                            )
+                        });
+                        break;
+                        
+                    case 'diffuse': // 디퓨즈 색상 모드 (개별 메시 사용)
+                        // 이 모드에서는 인스턴싱을 사용하지 않고 개별 메시를 생성합니다
+                        this.renderDiffuseColorMap(width, height, data, step, this.maxVoxels);
+                        return;
+                }
+                
+                const instancedMesh = new THREE.InstancedMesh(
+                    boxGeometry,
+                    this.currentMaterial,
+                    Math.min(this.maxVoxels, Math.ceil(totalVoxels / (step * step)))
+                );
+                
+                // 그림자 설정
+                instancedMesh.castShadow = this.shadowsEnabled;
+                instancedMesh.receiveShadow = this.shadowsEnabled;
+                
+                const dummy = new THREE.Object3D();
+                let instanceIdx = 0;
+                
+                // 색상 배열 (vertex 모드에서만 사용)
+                let colors = null;
+                if (this.colorMode === 'vertex') {
+                    colors = new Float32Array(Math.ceil(totalVoxels / (step * step)) * 3);
+                }
+                
+                // 모든 픽셀을 순회하며 복셀 생성 (스텝 간격으로)
+                for (let z = 0; z < height; z += step) {
+                    for (let x = 0; x < width; x += step) {
+                        if (instanceIdx >= this.maxVoxels) break;
+                        
+                        const pixelIndex = (z * width + x) * 4;
+                        
+                        // 그레이스케일 값 계산 (밝을수록 높이가 높음)
+                        const r = data[pixelIndex];
+                        const g = data[pixelIndex + 1];
+                        const b = data[pixelIndex + 2];
+                        const a = data[pixelIndex + 3];
+                        
+                        // 투명한 픽셀 건너뛰기
+                        if (a < 128) continue;
+                        
+                        const grayscale = (r + g + b) / 3 / 255;
+                        
+                        // 높이 계산
+                        const voxelHeight = Math.max(grayscale * 30 * this.heightScale, 0.1);
+                        
+                        // 복셀 위치와 크기 설정
+                        dummy.position.set(x, voxelHeight / 2, z);
+                        dummy.scale.set(step, voxelHeight, step);
+                        dummy.updateMatrix();
+                        instancedMesh.setMatrixAt(instanceIdx, dummy.matrix);
+                        
+                        // 복셀 색상 설정 (버텍스 색상 모드일 때만)
+                        if (this.colorMode === 'vertex') {
+                            const color = new THREE.Color(r/255, g/255, b/255);
+                            instancedMesh.setColorAt(instanceIdx, color);
+                        }
+                        
+                        instanceIdx++;
+                    }
+                }
+                
+                // 업데이트 필요 표시
+                instancedMesh.instanceMatrix.needsUpdate = true;
+                if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
+                
+                // 씬에 추가
+                this.voxels.add(instancedMesh);
+                
+                // 바닥면 추가
+                this.addGroundPlane(width, height);
+                
+                this.updateDebugInfo(`렌더링 완료: ${instanceIdx} 복셀, 모드: ${this.colorMode}`);
+            }
+            
+            renderDiffuseColorMap(width, height, data, step, maxVoxels) {
+                // 디퓨즈 색상 모드에서는 각 복셀마다 고유한 색상의 재질을 사용합니다
+                let voxelCount = 0;
+                const voxelGroup = new THREE.Group();
+                
+                // 각 픽셀에 대해 복셀 생성
+                for (let z = 0; z < height; z += step) {
+                    for (let x = 0; x < width; x += step) {
+                        if (voxelCount >= this.maxVoxels) break;
+                        
+                        const pixelIndex = (z * width + x) * 4;
+                        
+                        // 픽셀 데이터 가져오기
+                        const r = data[pixelIndex];
+                        const g = data[pixelIndex + 1];
+                        const b = data[pixelIndex + 2];
+                        const a = data[pixelIndex + 3];
+                        
+                        // 투명한 픽셀 건너뛰기
+                        if (a < 128) continue;
+                        
+                        // 그레이스케일 계산
+                        const grayscale = (r + g + b) / 3 / 255;
+                        const voxelHeight = Math.max(grayscale * 30 * this.heightScale, 0.1);
+                        
+                        // 각 복셀별 고유 색상의 재질 생성
+                        const voxelColor = new THREE.Color(r/255, g/255, b/255);
+                        
+                        // 성능을 위해 MeshLambertMaterial 사용 (반사 없음)
+                        const material = new THREE.MeshPhongMaterial({
+                            color: voxelColor,
+                            shininess: this.shininess,
+                            specular: new THREE.Color(
+                                this.specularIntensity,
+                                this.specularIntensity,
+                                this.specularIntensity
+                            )
+                        });
+                        
+                        // 낮은 세부 수준의 지오메트리 사용
+                        const geometry = new THREE.BoxGeometry(step, voxelHeight, step);
+                        const voxel = new THREE.Mesh(geometry, material);
+                        
+                        // 위치 설정
+                        voxel.position.set(x, voxelHeight/2, z);
+                        
+                        // 그림자 설정
+                        voxel.castShadow = this.shadowsEnabled;
+                        voxel.receiveShadow = this.shadowsEnabled;
+                        
+                        // 그룹에 추가
+                        voxelGroup.add(voxel);
+                        voxelCount++;
+                        
+                        // 성능을 위해 많은 복셀을 생성하지 않도록 제한
+                        if (voxelCount % 100 === 0) {
+                            this.updateDebugInfo(`복셀 생성 중: ${voxelCount}/${this.maxVoxels}`);
+                        }
+                    }
+                }
+                
+                // 씬에 그룹 추가
+                this.voxels.add(voxelGroup);
+                
+                // 바닥면 추가
+                this.addGroundPlane(width, height);
+                
+                this.updateDebugInfo(`디퓨즈 색상 모드 렌더링 완료: ${voxelCount} 복셀`);
+            }
+            
+            addGroundPlane(width, height) {
+                // 바닥면 추가
+                const planeGeometry = new THREE.PlaneGeometry(width + 20, height + 20);
+                const planeMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0xaaaaaa,
+                    shininess: 30,
+                    specular: new THREE.Color(0.2, 0.2, 0.2)
+                });
+                const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+                plane.rotation.x = -Math.PI / 2;
+                plane.position.set(width / 2, -0.5, height / 2);
+                plane.receiveShadow = this.shadowsEnabled;
+                this.voxels.add(plane);
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+            
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+        
+        // 렌더러 인스턴스 생성
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM 로드 완료, 렌더러 초기화");
+            window.voxelRenderer = new VoxelHeightMapRenderer();
+        });
+    </script>
+</body>
+</html>
